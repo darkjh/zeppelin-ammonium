@@ -1,8 +1,6 @@
+import sbt.Keys._
 import sbt._
-import Keys._
-import sbtassembly._
-import sbtassembly.{ Assembly => SbtAssembly }
-import sbtassembly.AssemblyKeys._
+import sbtassembly.{Assembly => SbtAssembly}
 
 
 object ZeppelinAmmoniumBuild extends Build {
@@ -16,6 +14,7 @@ object ZeppelinAmmoniumBuild extends Build {
     libraryDependencies ++= Seq(
       "com.github.alexarchambault.ammonium" % "interpreter-api" % Versions.ammonium cross CrossVersion.full,
       "com.github.alexarchambault.ammonium" % "interpreter" % Versions.ammonium cross CrossVersion.full,
+      "com.github.alexarchambault.ammonium" % "shell" % Versions.ammonium cross CrossVersion.full,
 //      "org.apache.zeppelin" % "zeppelin-interpreter" % Versions.zeppelin,
       "org.scalatest" %% "scalatest" % "2.2.4" % "test"
     )

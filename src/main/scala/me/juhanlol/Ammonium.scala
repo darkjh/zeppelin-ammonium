@@ -3,18 +3,14 @@ package me.juhanlol
 import java.util
 import java.util.Properties
 
+import ammonite.{Interpreter, BridgeConfig}
+import ammonite.api.CodeItem.{Definition, Identity, Import => CImport, LazyIdentity}
 import ammonite.api._
-import ammonite.Interpreter
-import ammonite.util.Classpath
-import ammonite.api.CodeItem.{Definition, Identity, LazyIdentity, Import => CImport}
 import ammonite.interpreter.Colors
-
+import ammonite.util.Classpath
 import coursier._
-
 import org.apache.zeppelin.interpreter.Interpreter.FormType
 import org.apache.zeppelin.interpreter.{Interpreter => ZInterpreter, InterpreterContext, InterpreterResult}
-
-import scala.collection.JavaConversions._
 
 
 class Ammonium(prop: Properties) extends ZInterpreter(prop) {
@@ -53,13 +49,14 @@ object WebDisplay {
       case Definition(label, name) =>
         s""" Iterator("defined ", "${colors.`type`()}", "$label", " ", "${colors.ident()}", "$name", "${colors.reset()}") """
       case Identity(ident) =>
-        s"""BridgeHolder.shell.printValue($$user.$ident, $$user.$ident, "$ident", _root_.scala.None)"""
+//        s"""BridgeHolder.shell.printValue($$user.$ident, $$user.$ident, "$ident", _root_.scala.None)"""
+        s"""Iterator("Identity -> ", "$ident")"""
       case LazyIdentity(ident) =>
-        s"""BridgeHolder.shell.printValue($$user.$ident, $$user.$ident, "$ident", _root_.scala.Some("<lazy>"))"""
+        //        s"""BridgeHolder.shell.printValue($$user.$ident, $$user.$ident, "$ident", _root_.scala.Some("<lazy>"))"""
+        s"""Iterator("LazyIdentity -> ", "$ident")"""
       case CImport(imported) =>
         s""" Iterator("${colors.`type`()}", "import ", "${colors.ident()}", "$imported", "${colors.reset()}") """
     }
-
 }
 
 
@@ -121,46 +118,59 @@ object AmmoniumInterpreter {
     "plugin" -> Nil
   )
 
-  lazy val classpath0: Classpath = new Classpath(
-    initialRepositories,
-    initialDependencies,
-    classLoaders0,
-    configs,
-    Interpreter.initCompiler()(intp)
-  )
-
   def print0(items: Seq[CodeItem], colors: Colors): String =
-      s""" Iterator[Iterator[String]](${items.map(WebDisplay(_, colors)).mkString(", ")}).filter(_.nonEmpty).flatMap(_ ++ Iterator("\\n")) """
+    s""" Iterator[Iterator[String]](${items.map(WebDisplay(_, colors)).mkString(", ")}).filter(_.nonEmpty).flatMap(_ ++ Iterator("\\n")) """
 
-  lazy val intp = new Interpreter(
-    imports = new ammonite.interpreter.Imports(useClassWrapper = true),
-    classpath = classpath0
-  ) {
-    def hasObjWrapSpecialImport(d: ParsedCode): Boolean =
-      d.items.exists {
-        case CodeItem.Import("special.wrap.obj") => true
-        case _                                   => false
-      }
+  lazy val underlying = {
+    lazy val classpath0: Classpath = new Classpath(
+      initialRepositories,
+      initialDependencies,
+      classLoaders0,
+      configs,
+      Interpreter.initCompiler()(intp)
+    )
 
-    override def wrap(
-                       decls: Seq[ParsedCode],
-                       imports: String,
-                       unfilteredImports: String,
-                       wrapper: String
-                       ) = {
-      // FIXME More or less the same thing in ammonium...
+    lazy val intp = new Interpreter(
+      imports = new ammonite.interpreter.Imports(useClassWrapper = true),
+      classpath = classpath0
+    ) {
+      def hasObjWrapSpecialImport(d: ParsedCode): Boolean =
+        d.items.exists {
+          case CodeItem.Import("special.wrap.obj") => true
+          case _                                   => false
+        }
 
-      val (doClassWrap, decls0) =
-        if (decls.exists(hasObjWrapSpecialImport))
-          (false, decls.filterNot(hasObjWrapSpecialImport))
+      override def wrap(
+        decls: Seq[ParsedCode],
+        imports: String,
+        unfilteredImports: String,
+        wrapper: String
+      ) = {
+        // FIXME More or less the same thing in ammonium...
+
+        val (doClassWrap, decls0) =
+          if (decls.exists(hasObjWrapSpecialImport))
+            (false, decls.filterNot(hasObjWrapSpecialImport))
+          else
+            (true, decls)
+
+        if (doClassWrap)
+          Interpreter.classWrap(print0(_, Colors.BlackWhite), decls0, imports, unfilteredImports, wrapper)
         else
-          (true, decls)
-
-      if (doClassWrap)
-        Interpreter.classWrap(print0(_, Colors.BlackWhite), decls0, imports, unfilteredImports, wrapper)
-      else
-        Interpreter.wrap(print0(_, Colors.BlackWhite), decls0, imports, unfilteredImports, "special" + wrapper)
+          Interpreter.wrap(print0(_, Colors.BlackWhite), decls0, imports, unfilteredImports, "special" + wrapper)
+      }
     }
+
+    val init = Interpreter.init(
+      BridgeConfig.empty,
+      None,
+      None
+    )
+
+    // FIXME Check result
+    init(intp)
+
+    intp
   }
 
   def interpret(code: String): (String, String)= {
@@ -172,7 +182,7 @@ object AmmoniumInterpreter {
       it => it.asInstanceOf[Iterator[String]].mkString.stripSuffix("\n")
     )
 
-    run(intp) match {
+    run(underlying) match {
       case Left(err) =>
         ("err", err.msg)
       case Right(Evaluated(_, _, data)) =>
